@@ -1,4 +1,12 @@
+use crossterm::{
+    cursor,
+    event::{self, Event, KeyCode},
+    execute, queue,
+    style::{self, Attribute, Color},
+    terminal::{self, ClearType},
+};
 use git2::{Repository, Sort};
+use std::io::{self, Write};
 
 fn find_git_commits() -> Vec<String> {
     let repo = Repository::discover(".").expect("failed to open git repository");
@@ -19,9 +27,74 @@ fn find_git_commits() -> Vec<String> {
         .collect()
 }
 
+fn run_menu(commits: &[String]) -> Option<usize> {
+    let mut stdout = io::stdout();
+    let mut selected = 0usize;
+
+    terminal::enable_raw_mode().expect("failed to enable raw mode");
+    execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide).unwrap();
+
+    let result = loop {
+        queue!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+
+        queue!(
+            stdout,
+            style::SetForegroundColor(Color::Yellow),
+            style::Print("Select a commit (↑/↓ to move, Enter to confirm, q to quit)\r\n\n"),
+            style::ResetColor,
+        )
+        .unwrap();
+
+        for (i, commit) in commits.iter().enumerate() {
+            if i == selected {
+                queue!(
+                    stdout,
+                    style::SetAttribute(Attribute::Reverse),
+                    style::Print(format!("> {commit}\r\n")),
+                    style::SetAttribute(Attribute::Reset),
+                )
+                .unwrap();
+            } else {
+                queue!(stdout, style::Print(format!("  {commit}\r\n"))).unwrap();
+            }
+        }
+
+        stdout.flush().unwrap();
+
+        match event::read().unwrap() {
+            Event::Key(key) => match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if selected > 0 {
+                        selected -= 1;
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if selected + 1 < commits.len() {
+                        selected += 1;
+                    }
+                }
+                KeyCode::Enter => break Some(selected),
+                KeyCode::Char('q') | KeyCode::Esc => break None,
+                _ => {}
+            },
+            _ => {}
+        }
+    };
+
+    execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show).unwrap();
+    terminal::disable_raw_mode().expect("failed to disable raw mode");
+
+    result
+}
+
 fn main() {
     let commits = find_git_commits();
-    for commit in commits {
-        println!("{}", commit);
+    if commits.is_empty() {
+        eprintln!("No commits found.");
+        return;
+    }
+
+    if let Some(index) = run_menu(&commits) {
+        println!("Selected: {}", commits[index]);
     }
 }
