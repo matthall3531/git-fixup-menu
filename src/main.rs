@@ -5,8 +5,22 @@ use crossterm::{
     style::{self, Attribute, Color},
     terminal::{self, ClearType},
 };
-use git2::{Repository, Sort};
+use git2::{DiffOptions, Repository, Sort};
 use std::io::{self, Write};
+
+fn has_staged_changes() -> bool {
+    let repo = Repository::discover(".").expect("failed to open git repository");
+    let index = repo.index().expect("failed to get index");
+    let head_tree = repo.head().ok().and_then(|h| h.peel_to_tree().ok());
+    let diff = repo
+        .diff_tree_to_index(
+            head_tree.as_ref(),
+            Some(&index),
+            Some(&mut DiffOptions::new()),
+        )
+        .expect("failed to compute diff");
+    diff.stats().map(|s| s.files_changed() > 0).unwrap_or(false)
+}
 
 fn find_git_commits() -> Vec<String> {
     let repo = Repository::discover(".").expect("failed to open git repository");
@@ -56,7 +70,12 @@ fn run_menu(commits: &[String]) -> Option<usize> {
     execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide).unwrap();
 
     let result = loop {
-        queue!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+        queue!(
+            stdout,
+            terminal::Clear(ClearType::All),
+            cursor::MoveTo(0, 0)
+        )
+        .unwrap();
 
         queue!(
             stdout,
@@ -101,6 +120,11 @@ fn run_menu(commits: &[String]) -> Option<usize> {
 }
 
 fn main() {
+    if !has_staged_changes() {
+        eprintln!("No staged changes. Stage files with `git add` before running.");
+        std::process::exit(1);
+    }
+
     let commits = find_git_commits();
     if commits.is_empty() {
         eprintln!("No commits found.");
