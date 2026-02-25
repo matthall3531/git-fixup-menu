@@ -9,20 +9,6 @@ use git2::{DiffOptions, Repository, Sort};
 use std::io::{self, Write};
 use std::process::Command;
 
-fn has_staged_changes() -> bool {
-    let repo = Repository::discover(".").expect("failed to open git repository");
-    let index = repo.index().expect("failed to get index");
-    let head_tree = repo.head().ok().and_then(|h| h.peel_to_tree().ok());
-    let diff = repo
-        .diff_tree_to_index(
-            head_tree.as_ref(),
-            Some(&index),
-            Some(&mut DiffOptions::new()),
-        )
-        .expect("failed to compute diff");
-    diff.stats().map(|s| s.files_changed() > 0).unwrap_or(false)
-}
-
 fn find_git_commits() -> Vec<String> {
     let repo = Repository::discover(".").expect("failed to open git repository");
     let mut revwalk = repo.revwalk().expect("failed to create revwalk");
