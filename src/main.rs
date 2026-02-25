@@ -5,27 +5,22 @@ use crossterm::{
     style::{self, Attribute, Color},
     terminal::{self, ClearType},
 };
-use git2::{Repository, Sort};
+use git2::{Repository, Revwalk, Sort};
 use std::io::{self, Write};
 use std::process::Command;
 
-fn find_git_commits(limit: usize) -> Vec<String> {
-    let repo = Repository::discover(".").expect("failed to open git repository");
-    let mut revwalk = repo.revwalk().expect("failed to create revwalk");
-    revwalk
-        .set_sorting(Sort::TIME)
-        .expect("failed to set sorting");
-    revwalk.push_head().expect("failed to push HEAD");
-
-    revwalk
-        .take(limit)
+fn fetch_more(repo: &Repository, revwalk: &mut Revwalk, n: usize, commits: &mut Vec<String>) {
+    let new: Vec<String> = revwalk
+        .by_ref()
+        .take(n)
         .filter_map(|oid| {
             let oid = oid.ok()?;
             let commit = repo.find_commit(oid).ok()?;
             let summary = commit.summary()?.to_string();
             Some(format!("{} {}", &oid.to_string()[..7], summary))
         })
-        .collect()
+        .collect();
+    commits.extend(new);
 }
 
 enum MenuEvent {
@@ -49,14 +44,29 @@ fn read_menu_event() -> MenuEvent {
     }
 }
 
-fn run_menu(commits: &[String]) -> Option<usize> {
+fn run_menu(
+    commits: &mut Vec<String>,
+    repo: &Repository,
+    revwalk: &mut Revwalk,
+) -> Option<usize> {
     let mut stdout = io::stdout();
     let mut selected = 0usize;
+    let mut scroll = 0usize;
 
     terminal::enable_raw_mode().expect("failed to enable raw mode");
     execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide).unwrap();
 
     let result = loop {
+        let (_, rows) = terminal::size().unwrap();
+        let visible_count = (rows as usize).saturating_sub(2);
+        let has_more_above = scroll > 0;
+        let mut commit_slots = visible_count.saturating_sub(has_more_above as usize);
+        let has_more_below = scroll + commit_slots < commits.len();
+        if has_more_below {
+            commit_slots = commit_slots.saturating_sub(1);
+        }
+        let visible = &commits[scroll..(scroll + commit_slots).min(commits.len())];
+
         queue!(
             stdout,
             terminal::Clear(ClearType::All),
@@ -72,9 +82,21 @@ fn run_menu(commits: &[String]) -> Option<usize> {
         )
         .unwrap();
 
-        for (i, commit) in commits.iter().enumerate() {
-            let eol = if i + 1 < commits.len() { "\r\n" } else { "" };
-            if i == selected {
+        if has_more_above {
+            queue!(
+                stdout,
+                style::SetForegroundColor(Color::DarkGrey),
+                style::Print("  ↑ more commits above...\r\n"),
+                style::ResetColor,
+            )
+            .unwrap();
+        }
+
+        for (i, commit) in visible.iter().enumerate() {
+            let abs = scroll + i;
+            let is_last = i + 1 == visible.len();
+            let eol = if !is_last || has_more_below { "\r\n" } else { "" };
+            if abs == selected {
                 queue!(
                     stdout,
                     style::SetAttribute(Attribute::Reverse),
@@ -87,6 +109,16 @@ fn run_menu(commits: &[String]) -> Option<usize> {
             }
         }
 
+        if has_more_below {
+            queue!(
+                stdout,
+                style::SetForegroundColor(Color::DarkGrey),
+                style::Print("  ↓ more commits below..."),
+                style::ResetColor,
+            )
+            .unwrap();
+        }
+
         stdout.flush().unwrap();
 
         match read_menu_event() {
@@ -94,6 +126,20 @@ fn run_menu(commits: &[String]) -> Option<usize> {
                 let next = selected as i32 + delta;
                 if next >= 0 && next < commits.len() as i32 {
                     selected = next as usize;
+                    if selected < scroll {
+                        scroll = selected;
+                    } else if selected >= scroll + commit_slots {
+                        scroll = selected + 1 - commit_slots;
+                        // If we just crossed from scroll=0 to scroll>0, has_more_above
+                        // becomes true and steals one slot. Compensate by shifting one more.
+                        if !has_more_above && scroll > 0 {
+                            scroll += 1;
+                        }
+                    }
+                    // Fetch more when the cursor reaches the last screenful
+                    if selected + visible_count >= commits.len() {
+                        fetch_more(repo, revwalk, visible_count, commits);
+                    }
                 }
             }
             MenuEvent::Confirm => break Some(selected),
@@ -120,15 +166,24 @@ fn create_fixup_commit(sha: &str) {
 }
 
 fn main() {
+    let repo = Repository::discover(".").expect("failed to open git repository");
+    let mut revwalk = repo.revwalk().expect("failed to create revwalk");
+    revwalk
+        .set_sorting(Sort::TIME)
+        .expect("failed to set sorting");
+    revwalk.push_head().expect("failed to push HEAD");
+
     let (_, rows) = terminal::size().expect("failed to get terminal size");
-    let limit = (rows as usize).saturating_sub(2);
-    let commits = find_git_commits(limit);
+    let initial = (rows as usize) * 2;
+    let mut commits = Vec::new();
+    fetch_more(&repo, &mut revwalk, initial, &mut commits);
+
     if commits.is_empty() {
         eprintln!("No commits found.");
         return;
     }
 
-    if let Some(index) = run_menu(&commits) {
+    if let Some(index) = run_menu(&mut commits, &repo, &mut revwalk) {
         let sha = &commits[index][..7];
         create_fixup_commit(sha);
     }
