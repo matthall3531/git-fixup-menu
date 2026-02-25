@@ -27,6 +27,27 @@ fn find_git_commits() -> Vec<String> {
         .collect()
 }
 
+enum MenuEvent {
+    Move(i32),
+    Confirm,
+    Quit,
+}
+
+fn read_menu_event() -> MenuEvent {
+    loop {
+        match event::read().unwrap() {
+            Event::Key(key) => match key.code {
+                KeyCode::Up | KeyCode::Char('k') => return MenuEvent::Move(-1),
+                KeyCode::Down | KeyCode::Char('j') => return MenuEvent::Move(1),
+                KeyCode::Enter => return MenuEvent::Confirm,
+                KeyCode::Char('q') | KeyCode::Esc => return MenuEvent::Quit,
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+}
+
 fn run_menu(commits: &[String]) -> Option<usize> {
     let mut stdout = io::stdout();
     let mut selected = 0usize;
@@ -61,23 +82,15 @@ fn run_menu(commits: &[String]) -> Option<usize> {
 
         stdout.flush().unwrap();
 
-        match event::read().unwrap() {
-            Event::Key(key) => match key.code {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    if selected > 0 {
-                        selected -= 1;
-                    }
+        match read_menu_event() {
+            MenuEvent::Move(delta) => {
+                let next = selected as i32 + delta;
+                if next >= 0 && next < commits.len() as i32 {
+                    selected = next as usize;
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    if selected + 1 < commits.len() {
-                        selected += 1;
-                    }
-                }
-                KeyCode::Enter => break Some(selected),
-                KeyCode::Char('q') | KeyCode::Esc => break None,
-                _ => {}
-            },
-            _ => {}
+            }
+            MenuEvent::Confirm => break Some(selected),
+            MenuEvent::Quit => break None,
         }
     };
 
