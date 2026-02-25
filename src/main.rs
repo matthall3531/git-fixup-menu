@@ -7,6 +7,7 @@ use crossterm::{
 };
 use git2::{DiffOptions, Repository, Sort};
 use std::io::{self, Write};
+use std::process::Command;
 
 fn has_staged_changes() -> bool {
     let repo = Repository::discover(".").expect("failed to open git repository");
@@ -119,11 +120,23 @@ fn run_menu(commits: &[String]) -> Option<usize> {
     result
 }
 
-fn main() {
-    if !has_staged_changes() {
-        eprintln!("No staged changes. Stage files with `git add` before running.");
+fn create_fixup_commit(sha: &str) {
+    let status = Command::new("git")
+        .args(["commit", "--fixup", sha])
+        .status()
+        .expect("failed to run git commit --fixup");
+
+    if !status.success() {
+        eprintln!("git commit --fixup failed");
         std::process::exit(1);
     }
+}
+
+fn main() {
+    // if !has_staged_changes() {
+    //     eprintln!("No staged changes. Stage files with `git add` before running.");
+    //     std::process::exit(1);
+    // }
 
     let commits = find_git_commits();
     if commits.is_empty() {
@@ -132,6 +145,7 @@ fn main() {
     }
 
     if let Some(index) = run_menu(&commits) {
-        println!("Selected: {}", commits[index]);
+        let sha = &commits[index][..7];
+        create_fixup_commit(sha);
     }
 }
