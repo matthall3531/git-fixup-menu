@@ -5,11 +5,11 @@ use crossterm::{
     style::{self, Attribute, Color},
     terminal::{self, ClearType},
 };
-use git2::{DiffOptions, Repository, Sort};
+use git2::{Repository, Sort};
 use std::io::{self, Write};
 use std::process::Command;
 
-fn find_git_commits() -> Vec<String> {
+fn find_git_commits(limit: usize) -> Vec<String> {
     let repo = Repository::discover(".").expect("failed to open git repository");
     let mut revwalk = repo.revwalk().expect("failed to create revwalk");
     revwalk
@@ -18,7 +18,7 @@ fn find_git_commits() -> Vec<String> {
     revwalk.push_head().expect("failed to push HEAD");
 
     revwalk
-        .take(10)
+        .take(limit)
         .filter_map(|oid| {
             let oid = oid.ok()?;
             let commit = repo.find_commit(oid).ok()?;
@@ -73,16 +73,17 @@ fn run_menu(commits: &[String]) -> Option<usize> {
         .unwrap();
 
         for (i, commit) in commits.iter().enumerate() {
+            let eol = if i + 1 < commits.len() { "\r\n" } else { "" };
             if i == selected {
                 queue!(
                     stdout,
                     style::SetAttribute(Attribute::Reverse),
-                    style::Print(format!("> {commit}\r\n")),
+                    style::Print(format!("> {commit}{eol}")),
                     style::SetAttribute(Attribute::Reset),
                 )
                 .unwrap();
             } else {
-                queue!(stdout, style::Print(format!("  {commit}\r\n"))).unwrap();
+                queue!(stdout, style::Print(format!("  {commit}{eol}"))).unwrap();
             }
         }
 
@@ -119,12 +120,9 @@ fn create_fixup_commit(sha: &str) {
 }
 
 fn main() {
-    // if !has_staged_changes() {
-    //     eprintln!("No staged changes. Stage files with `git add` before running.");
-    //     std::process::exit(1);
-    // }
-
-    let commits = find_git_commits();
+    let (_, rows) = terminal::size().expect("failed to get terminal size");
+    let limit = (rows as usize).saturating_sub(2);
+    let commits = find_git_commits(limit);
     if commits.is_empty() {
         eprintln!("No commits found.");
         return;
