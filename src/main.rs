@@ -44,11 +44,7 @@ fn read_menu_event() -> MenuEvent {
     }
 }
 
-fn run_menu(
-    commits: &mut Vec<String>,
-    repo: &Repository,
-    revwalk: &mut Revwalk,
-) -> Option<usize> {
+fn run_menu(commits: &mut Vec<String>, repo: &Repository, revwalk: &mut Revwalk) -> Option<usize> {
     let mut stdout = io::stdout();
     let mut selected = 0usize;
     let mut scroll = 0usize;
@@ -95,7 +91,11 @@ fn run_menu(
         for (i, commit) in visible.iter().enumerate() {
             let abs = scroll + i;
             let is_last = i + 1 == visible.len();
-            let eol = if !is_last || has_more_below { "\r\n" } else { "" };
+            let eol = if !is_last || has_more_below {
+                "\r\n"
+            } else {
+                ""
+            };
             if abs == selected {
                 queue!(
                     stdout,
@@ -166,7 +166,12 @@ fn create_fixup_commit(sha: &str) {
 }
 
 fn main() {
-    let repo = Repository::discover(".").expect("failed to open git repository");
+    let repo = Repository::discover(".");
+    if repo.is_err() {
+        eprintln!("Not a valid git repo.");
+        return;
+    }
+    let repo = repo.unwrap();
     let mut revwalk = repo.revwalk().expect("failed to create revwalk");
     revwalk
         .set_sorting(Sort::TIME)
