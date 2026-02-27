@@ -141,18 +141,30 @@ fn run_menu(commits: &mut Vec<String>, repo: &Repository, revwalk: &mut Revwalk)
                 ""
             };
 
+            let sha = &commits[abs][..7];
+            let summary = &commits[abs][8..];
+
             if abs == selected {
                 queue!(
                     stdout,
                     style::SetAttribute(Attribute::Reverse),
-                    style::Print(format!("> {}{summary_eol}", &commits[abs])),
+                    style::Print("> "),
+                    style::SetForegroundColor(Color::Green),
+                    style::Print(sha),
+                    style::ResetColor,
+                    style::SetAttribute(Attribute::Reverse),
+                    style::Print(format!(" {summary}{summary_eol}")),
                     style::SetAttribute(Attribute::Reset),
                 )
                 .unwrap();
             } else {
                 queue!(
                     stdout,
-                    style::Print(format!("  {}{summary_eol}", &commits[abs]))
+                    style::Print("  "),
+                    style::SetForegroundColor(Color::Green),
+                    style::Print(sha),
+                    style::ResetColor,
+                    style::Print(format!(" {summary}{summary_eol}")),
                 )
                 .unwrap();
             }
@@ -267,7 +279,7 @@ fn main() {
     let repo = repo.unwrap();
     let mut revwalk = repo.revwalk().expect("failed to create revwalk");
     revwalk
-        .set_sorting(Sort::TIME)
+        .set_sorting(Sort::TIME | Sort::TOPOLOGICAL)
         .expect("failed to set sorting");
     revwalk.push_head().expect("failed to push HEAD");
 
